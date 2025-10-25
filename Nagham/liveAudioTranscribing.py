@@ -103,6 +103,7 @@ def analyze_audio(audio_b64):
 
     reply = response.choices[0].message.content
     print(f"\n🧠 Model reply:\n{reply}\n" + "-" * 40)
+    return reply
 
 def main():
     print("🎤 Boson Voice Listener (Ctrl+C to stop)\n")

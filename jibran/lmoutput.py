@@ -28,7 +28,7 @@ def get_lm_output(prompt):
 
     action: string (present only if native=true), formatted exactly as one of:
     "(resize, (m,n))" where m,n are integers (pixels)
-    "(rotate, deg)" where deg ∈ {0, 90, 180, 270} (normalize words like “ninety” → 90)
+    "(rotate, deg)" where deg ∈ {0, 90, 180, 270} (normalize words like “ninety” → 90). If the degree is not one of these ignore the rotate comand.
     "(grayscale, )"
     "(vflip, )"
     "(hflip, )"
@@ -72,7 +72,7 @@ def get_lm_output(prompt):
     )
     raw_output = message.content[0].text
     cleaned_json_string = raw_output.strip().removeprefix("```json").strip().removesuffix("```").strip()
-    json_array = json.loads(cleaned_json_string)
+    json_array = json.loads(cleaned_json_string) if cleaned_json_string else None
     return json_array
 
 if __name__ == "__main__":
