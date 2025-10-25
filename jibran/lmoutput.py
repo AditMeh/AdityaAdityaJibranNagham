@@ -5,64 +5,75 @@ import json
 
 load_dotenv()
 
-client = anthropic.Anthropic(
-    # defaults to os.environ.get("ANTHROPIC_API_KEY")
-    api_key=os.getenv("ANTHROPIC_API_KEY")
-)
 
-SYSTEM_PROMPT = """You are an intent normalizer for voice-to-image editing.
+def get_lm_output(prompt):
+    """Get the output from the LM, returns a JSON array of objects with the schema described below
+    {
+        "native": boolean,
+        "action": string,
+        "generative": boolean,
+        "prompt": string
+    }"""
+    client = anthropic.Anthropic(
+        # defaults to os.environ.get("ANTHROPIC_API_KEY")
+        api_key=os.getenv("ANTHROPIC_API_KEY")
+    )
 
-Task:
-Given a natural-language instruction, output a JSON array of objects with this exact schema:
+    SYSTEM_PROMPT = f"""You are an intent normalizer for voice-to-image editing.
 
-native: boolean
+    Task:
+    Given a natural-language instruction, output a JSON array of objects with this exact schema:
 
-action: string (present only if native=true), formatted exactly as one of:
-"(resize, (m,n))" where m,n are integers (pixels)
-"(rotate, deg)" where deg ∈ [0, 360] (normalize words like “ninety” → 90)
-"(grayscale, )"
-"(vflip, )"
-"(hflip, )"
-"(sharpness, s)" where s is a number
-"(saturation, x)" where x is a number
+    native: boolean
 
-generative: boolean
+    action: string (present only if native=true), formatted exactly as one of:
+    "(resize, (m,n))" where m,n are integers (pixels)
+    "(rotate, deg)" where deg ∈ {0, 90, 180, 270} (normalize words like “ninety” → 90)
+    "(grayscale, )"
+    "(vflip, )"
+    "(hflip, )"
+    "(sharpness, s)" where s is a number
+    "(saturation, x)" where x is a number
 
-prompt: string (present only if generative=true), a concise diffusion prompt describing the edit for that step
+    generative: boolean
 
-Native vs Generative:
+    prompt: string (present only if generative=true), a concise diffusion prompt describing the edit for that step
 
-Native (and only these): resize, rotate, grayscale, vflip, hflip, sharpness, saturation.
+    Native vs Generative:
 
-Everything else is Generative: add/remove/replace objects, recolor specific objects or backgrounds, style/material changes, relighting, segmentation/inpainting, background swaps, etc.
+    Native (and only these): resize, rotate, grayscale, vflip, hflip, sharpness, saturation.
 
-Rules:
+    Everything else is Generative: add/remove/replace objects, recolor specific objects or backgrounds, style/material changes, relighting, segmentation/inpainting, background swaps, etc.
 
-Split multi-step instructions into atomic steps in the spoken order.
+    Rules:
 
-For native steps: native=true, generative=false, fill action, prompt="".
+    Split multi-step instructions into atomic steps in the spoken order.
 
-For generative steps: generative=true, native=false, action="", fill prompt (short, specific, preserve scene unless told otherwise).
+    For native steps: native=true, generative=false, fill action, prompt="".
 
-Normalize numbers/units (e.g., “ninety degrees” → 90; “1920 by 1080” → (1920,1080)).
+    For generative steps: generative=true, native=false, action="", fill prompt (short, specific, preserve scene unless told otherwise).
 
-No extra fields or prose. Output only the JSON array.
-Do not use markdown or code fences; output only raw JSON.
-Remember: Only the seven native actions listed are native. Everything else is generative. Output JSON only."""
+    Normalize numbers/units (e.g., “ninety degrees” → 90; “1920 by 1080” → (1920,1080)).
 
-message = client.messages.create(
-    model="claude-haiku-4-5",
-    max_tokens=1024,
-    system=SYSTEM_PROMPT,
-    messages=[
-        {
-            "role": "user",
-            "content": f"Make the picture grayscale, and then flip it horizontally. Rotate the image by ninety degrees. Then resize the image to 1000x1000 rotate by 44 degrees. Then change the background color to blue add a frog with a magician hat on it riding on a bicycle. then make the saturation of the image to 1.5"
-        }
-    ],
-)
-raw_output = message.content[0].text
-cleaned_json_string = raw_output.strip().removeprefix("```json").strip().removesuffix("```").strip()
-json_array = json.loads(cleaned_json_string)
-for item in json_array:
-    print(item)
+    No extra fields or prose. Output only the JSON array.
+    Do not use markdown or code fences; output only raw JSON.
+    Remember: Only the seven native actions listed are native. Everything else is generative. Output JSON only."""
+
+    message = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=1024,
+        system=SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+    )
+    raw_output = message.content[0].text
+    cleaned_json_string = raw_output.strip().removeprefix("```json").strip().removesuffix("```").strip()
+    json_array = json.loads(cleaned_json_string)
+    return json_array
+
+if __name__ == "__main__":
+    print(get_lm_output("Make the picture grayscale, and then flip it horizontally. Rotate the image by ninety degrees. Then resize the image to 1000x1080 and add a frog with a magician hat on it riding on a bicycle and flip it vertically."))
