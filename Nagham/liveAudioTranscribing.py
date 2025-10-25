@@ -6,6 +6,8 @@ import base64
 import openai
 import os
 import time
+from dotenv import load_dotenv
+load_dotenv()
 
 # Run in your terminal `export BOSON_API_KEY="your_key_here"`
 BOSON_API_KEY = os.getenv("BOSON_API_KEY")
@@ -18,14 +20,14 @@ client = openai.Client(
 # === CONFIG ===
 SAMPLERATE = 16000        # Lower rate = faster processing
 CHANNELS = 1
-SILENCE_THRESHOLD = 0.15  # Adjust if too sensitive (0.01–0.05 typical)
+SILENCE_THRESHOLD = 0.2 # Adjust if too sensitive (0.01–0.05 typical)
 MIN_DURATION = 1        # Min seconds of speech before sending
 MAX_DURATION = 10         # Hard cap to avoid overly long clips
 SILENCE_TIME = 1.5        # Time (s) of silence before cutting
 
 def record_until_silence():
     """Continuously listen and record when speech detected, stop on silence."""
-    print("🎧 Listening for speech...")
+    print("Listening for speech.")
     audio_buffer = []
     is_recording = False
     silence_start = None
@@ -42,7 +44,7 @@ def record_until_silence():
                     is_recording = True
                     start_time = time.time()
                     audio_buffer = [data]
-                    print("🎙️ Detected speech… recording...")
+                    print("Detected speech… recording...")
             else:
                 audio_buffer.append(data)
                 duration = time.time() - start_time
@@ -52,7 +54,7 @@ def record_until_silence():
                     if silence_start is None:
                         silence_start = time.time()
                     elif time.time() - silence_start > SILENCE_TIME:
-                        print("🛑 Silence detected — stopping.")
+                        print("Silence detected — stopping.")
                         break
                 else:
                     silence_start = None
@@ -86,7 +88,7 @@ def analyze_audio(audio_b64):
     response = client.chat.completions.create(
         model="higgs-audio-understanding-Hackathon",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant. Transcribe the audio using correct punctuation."},
+            {"role": "system", "content": "You are a helpful assistant. Transcribe the audio into text separated by newlines."},
             {
                 "role": "user",
                 "content": [
@@ -102,18 +104,18 @@ def analyze_audio(audio_b64):
     )
 
     reply = response.choices[0].message.content
-    print(f"\n🧠 Model reply:\n{reply}\n" + "-" * 40)
+    print(f"\nModel reply:\n{reply}\n" + "-" * 40)
     return reply
 
 def main():
-    print("🎤 Boson Voice Listener (Ctrl+C to stop)\n")
+    print("Boson Voice Listener (Ctrl+C to stop)\n")
     try:
         while True:
             audio_b64 = record_until_silence()
             if audio_b64:
                 analyze_audio(audio_b64)
     except KeyboardInterrupt:
-        print("\n👋 Exiting gracefully.")
+        print("\Exiting.")
 
 if __name__ == "__main__":
     main()
