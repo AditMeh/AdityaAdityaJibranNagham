@@ -2,6 +2,7 @@ import threading
 import time
 from PIL import Image
 import sys
+import re
 
 # Import your custom modules
 from jibran.lmoutput import get_lm_output
@@ -56,6 +57,7 @@ def process_image_with_voice(image_path: str):
 
                 if edit.get('generative'):
                     print("Generative edit is not yet implemented.")
+                    """ Fill in the generative part here"""
                     continue
 
                 action_str = edit.get('action')
@@ -108,10 +110,16 @@ def process_image_with_voice(image_path: str):
                             print("Error: 'sharpness' requires one parameter (factor).")
                     elif action_name == 'resize':
                         if len(params) == 2:
-                            size = (int(params[0]), int(params[1]))
-                            img = resize.resize(img, size=size)
-                            print(f"Applied 'resize' with size {size}.")
-                            img.show(title=f"After: resize {size}")
+                            try:
+                                # Extract numbers from the potentially messy parameter strings
+                                width = int(re.search(r'\d+', params[0]).group())
+                                height = int(re.search(r'\d+', params[1]).group())
+                                size = (width, height)
+                                img = resize.resize(img, size=size)
+                                print(f"Applied 'resize' with size {size}.")
+                                img.show(title=f"After: resize {size}")
+                            except (AttributeError, ValueError):
+                                print(f"Error: could not parse width/height from resize parameters: {params}")
                         else:
                             print("Error: 'resize' requires two parameters (width, height).")
                     else:
