@@ -26,6 +26,55 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Native image editing functions
+def crop_to(image: Image.Image, prompt: str, gpu_server_url="http://localhost:6000/segment") -> Image.Image:
+    """Crops the image to the specified object using segmentation."""
+    try:
+        print(f"✂️ Processing crop: '{prompt}'")
+        print("⏳ This may take 10-15 seconds...")
+        
+        # Save the image to a temporary file
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+            image.save(temp_file.name)
+            temp_path = temp_file.name
+        
+        try:
+            # Prepare the request
+            with open(temp_path, 'rb') as image_file:
+                files = {
+                    'image': image_file,
+                }
+                data = {
+                    'prompt': prompt,
+                }
+                
+                # Make request with timeout
+                response = requests.post(gpu_server_url, files=files, data=data, timeout=60)
+                
+                if response.status_code == 200:
+                    # Load the cropped image from response
+                    cropped_image = Image.open(io.BytesIO(response.content))
+                    print(f"✓ Crop completed: '{prompt}'")
+                    return cropped_image
+                else:
+                    print(f"✗ Crop failed with status {response.status_code}: {response.text}")
+                    return image  # Return original image on failure
+                    
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_path)
+            
+    except requests.exceptions.Timeout:
+        print("✗ Crop timed out (60s)")
+        return image
+    except requests.exceptions.ConnectionError:
+        print("✗ Could not connect to GPU server. Make sure it's running on localhost:6000")
+        return image
+    except Exception as e:
+        print(f"✗ Crop error: {e}")
+        return image
+
+
 def vflip(image: Image.Image) -> Image.Image:
     """Vertically flips the image."""
     return image.transpose(Image.FLIP_TOP_BOTTOM)
@@ -67,51 +116,49 @@ def get_lm_output(prompt):
 
     SYSTEM_PROMPT = f"""You are an intent normalizer for voice-to-image editing.
 
-    Task:
-    Given a natural-language instruction, output a JSON array of objects with this exact schema in this order:
+        Task:
+        Given a natural-language instruction, output a JSON array of objects with this exact schema in this order:
 
-    native: boolean
+        native: boolean
 
-    action: string (present only if native=true), formatted exactly as one of:
-    "(resize, (m,n))" where m,n are integers (pixels)
-    "(rotate, deg)" where deg ∈ {0, 90, 180, 270} (normalize words like "ninety" → 90). 
-    "(grayscale, )"
-    "(vflip, )"
-    "(hflip, )"
-    "(sharpness, s)" where s is a number
-    "(saturation, x)" where x is a number
+        action: string (present only if native=true), formatted exactly as one of:
+        "(resize, (m,n))" where m,n are integers (pixels)
+        "(rotate, deg)" where deg ∈ {0, 90, 180, 270} (normalize words like “ninety” → 90). 
+        "(grayscale, )"
+        "(vflip, )"
+        "(hflip, )"
+        "(sharpness, s)" where s is a number
+        "(saturation, x)" where x is a number
+        "(zoom, string)" where string is the object/thing to crop. If you get a sentence like "zoom to the face of the person", the string should be "face of the person".
 
-    generative: boolean
+        generative: boolean
 
-    prompt: string (present only if generative=true), a concise diffusion prompt describing the edit for that step
+        prompt: string (present only if generative=true), a concise diffusion prompt describing the edit for that step
 
-    images: List[str], a list of the images the text asks to use. Leave as Empty if no image is referenced.
+        images: List[str], a list of the images the text asks to use. Leave as Empty if no image is referenced. Example: For the phrase 'using images orange and ball, change the ball to have orange patterns on it' the images array would be ['orange', 'ball'] and for the phrase 'rotate by 90 degrees' the images array would be '[]'
 
-    Native vs Generative:
+        Native vs Generative:
 
-    Native (and only these): resize, rotate, grayscale, vflip, hflip, sharpness, saturation.
+        Native (and only these): resize, rotate, grayscale, vflip, hflip, sharpness, saturation, zoom.
 
-    Everything else is Generative: add/remove/replace objects, recolor specific objects or backgrounds, style/material changes, relighting, segmentation/inpainting, background swaps, etc.
+        Everything else is Generative: add/remove/replace objects, recolor specific objects or backgrounds, style/material changes, relighting, segmentation/inpainting, background swaps, etc.
 
-    Rules:
+        Rules:
 
-    Split multi-step instructions into atomic steps in the spoken order.
-    
-    For rotate, only include the degree if it is one of the following: {{0, 90, 180, 270}}. Otherwise, ignore the rotate command completely and do not include it in the JSON array.
+        Split multi-step instructions into atomic steps in the spoken order.
+        
+        For rotate, only include the degree if it is one of the following: {0, 90, 180, 270}. Otherwise, ignore the rotate command completely and do not include it in the JSON array.
 
-    For sharpness and saturation, if a percentage is given, use the scale factor corresponding to the percentage. 
-    For example, if the instruction is 'increase sharpness by twenty percent' then the constant for sharpness should be 1.2, if the instruction is 'make the saturation 120%' then multiply the saturation by 1.2'
-    If we say 'decrease the sharpness by twenty percent' then the constant for sharpness should be 0.8, if we say 'make the saturation 80%' then multiply the saturation by 0.8
+        For native steps: native=true, generative=false, fill action, prompt="".
 
-    For native steps: native=true, generative=false, fill action, prompt="".
+        For generative steps: generative=true, native=false, action="", fill prompt (short, specific, preserve scene unless told otherwise).
 
-    For generative steps: generative=true, native=false, action="", fill prompt (short, specific, preserve scene unless told otherwise).
+        For the images array, do not add a file extension.
 
-    For the images array, do not add a file extension.
+        Normalize numbers/units (e.g., “ninety degrees” → 90; “1920 by 1080” → (1920,1080)).
 
-    Normalize numbers/units (e.g., "ninety degrees" → 90; "1920 by 1080" → (1920,1080)).
-
-    Remember: Only the seven native actions listed are native. Everything else is generative. Output JSON only and follow the schema order."""
+        Remember: Only the eight native actions listed are native. Everything else is generative. Output JSON only and follow the schema order.
+        """
 
     message = client.messages.create(
         model="claude-haiku-4-5",
@@ -135,12 +182,21 @@ def get_lm_output(prompt):
         return None
     return json_array
 
-def process_generative_edit(image_path, prompt, gpu_server_url="http://localhost:6000/generate"):
+def process_generative_edit(image_path, prompt, images=None, gpu_server_url="http://localhost:6000/generate"):
     """Process a generative edit using the GPU server."""
     try:
         print(f"🎨 Processing generative edit: '{prompt}'")
+        if images:
+            print(f"📸 Using images: {images}")
         print("⏳ This may take 20-30 seconds...")
         
+        # Check if this is a multi-image generation
+        if images and len(images) > 1:
+            # Use the multi-image endpoint
+            multi_url = gpu_server_url.replace('/generate', '/generate_multi')
+            return process_multi_image_generation(image_path, prompt, images, multi_url)
+        
+        # Single image generation (original logic)
         with open(image_path, "rb") as image_file:
             files = {
                 "image": image_file,
@@ -177,6 +233,83 @@ def process_generative_edit(image_path, prompt, gpu_server_url="http://localhost
         print(f"✗ Generative edit error: {e}")
         return False
 
+def process_multi_image_generation(image_path, prompt, images, gpu_server_url="http://localhost:6000/generate_multi"):
+    """Process a multi-image generation using the GPU server."""
+    try:
+        print(f"🎨 Processing multi-image generation: '{prompt}'")
+        print(f"📸 Using images: {images}")
+        print("⏳ This may take 20-30 seconds...")
+        
+        # Find the image files in the test_images directory
+        test_images_path = './test_images'
+        image_files = []
+        file_handles = []
+        
+        for image_name in images:
+            # Try different extensions
+            for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']:
+                potential_path = os.path.join(test_images_path, f"{image_name}{ext}")
+                if os.path.exists(potential_path):
+                    file_handle = open(potential_path, 'rb')
+                    file_handles.append(file_handle)
+                    image_files.append(('images', (f"{image_name}{ext}", file_handle, 'image/jpeg')))
+                    print(f"✓ Found image: {image_name}{ext}")
+                    break
+            else:
+                print(f"⚠️ Image '{image_name}' not found in test_images directory")
+                # Close any opened files before returning
+                for fh in file_handles:
+                    fh.close()
+                return False
+        
+        if not image_files:
+            print("✗ No valid images found for multi-image generation")
+            return False
+        
+        # Prepare the request
+        data = {
+            "prompt": prompt,
+        }
+        
+        # Debug information
+        print(f"📤 Sending {len(image_files)} images to {gpu_server_url}")
+        print(f"📝 Prompt: {prompt}")
+        for field_name, (filename, file_obj, content_type) in image_files:
+            print(f"📁 File: {field_name} -> {filename} ({content_type})")
+        
+        try:
+            # Make request with timeout
+            response = requests.post(gpu_server_url, files=image_files, data=data, timeout=120)
+        finally:
+            # Close the opened files
+            for fh in file_handles:
+                fh.close()
+        
+        if response.status_code == 200:
+            # Save the generated image back to the original path
+            with open(image_path, "wb") as out_file:
+                print(f"✓ Writing multi-image generated result to {image_path}")
+                
+                with open("thingy.png", "wb") as f:
+                    f.write(response.content)
+                
+                out_file.write(response.content)
+            print(f"✓ Multi-image generation completed: '{prompt}' → {image_path}")
+            return True
+        else:
+            print(f"✗ Multi-image generation failed with status {response.status_code}: {response.text}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        print("✗ Multi-image generation timed out (120s)")
+        return False
+    except requests.exceptions.ConnectionError:
+        print("✗ Could not connect to GPU server. Make sure it's running on localhost:6000")
+        return False
+    except Exception as e:
+        print(f"✗ Multi-image generation error: {e}")
+        return False
+
 class ImageViewerController:
     def __init__(self, server_url="ws://localhost:3000"):
         self.server_url = server_url
@@ -201,7 +334,7 @@ class ImageViewerController:
         # Audio configuration
         self.SAMPLERATE = 16000
         self.CHANNELS = 1
-        self.SILENCE_THRESHOLD = 0.053
+        self.SILENCE_THRESHOLD = 0.01
         self.MIN_DURATION = 1
         self.MAX_DURATION = 10
         self.SILENCE_TIME = 1.5
@@ -678,8 +811,9 @@ class ImageViewerController:
                 if edit.get('generative'):
                     # Process generative edit using GPU server
                     prompt = edit.get('prompt', '')
+                    images = edit.get('images', [])
                     if prompt:
-                        success = process_generative_edit(image_path, prompt)
+                        success = process_generative_edit(image_path, prompt, images)
                         if not success:
                             print(f"⚠️ Generative edit failed: '{prompt}'")
                     else:
@@ -749,6 +883,15 @@ class ImageViewerController:
                             else:
                                 print("Error: 'resize' requires two parameters (width, height).")
                                 continue
+                            
+                        elif action_name == 'zoom':
+                            crompt = params[0] if params else ""
+                            if not crompt:
+                                print("Did not receive an object to crop, try again")
+                                continue
+                            # call the crop function with "crompt" as the string prompt
+                            img = crop_to(img, crompt)
+                            print(f"Applied 'crop' with prompt: {crompt}")
                         else:
                             print(f"Unknown action: '{action_name}'")
                             continue
