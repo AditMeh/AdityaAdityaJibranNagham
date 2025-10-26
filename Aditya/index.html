@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background-color: #f0f0f0;
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: white;
+            border-right: 2px solid #ddd;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .sidebar h2 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .image-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .image-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin: 5px 0;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .image-item:hover {
+            background-color: #f8f9fa;
+            border-color: #ddd;
+        }
+        
+        .image-item.selected {
+            background-color: #e3f2fd;
+            border-color: #1976d2;
+        }
+        
+        .image-preview {
+            width: 50px;
+            height: 50px;
+            object-fit: cover;
+            border-radius: 4px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+        }
+        
+        .image-name {
+            flex: 1;
+            font-size: 14px;
+            color: #333;
+            word-break: break-all;
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 800px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        #imageDisplay {
+            max-width: 100%;
+            max-height: 80vh;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: block;
+            margin: 0 auto;
+        }
+        
+        .status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        
+        .status.checking {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .status.updated {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+        }
+        
+        .status.error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .no-images {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+        }
+        
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #fafafa;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: #1976d2;
+            background-color: #f0f8ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #1976d2;
+            background-color: #e3f2fd;
+        }
+        
+        .upload-text {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .delete-btn {
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-left: 10px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .image-item:hover .delete-btn {
+            opacity: 1;
+        }
+        
+        .delete-btn:hover {
+            background: #cc0000;
+        }
+        
+        .upload-progress {
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background-color: #e0e0e0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background-color: #1976d2;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .image-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 10px;
+            max-width: 100%;
+            max-height: 80vh;
+        }
+        
+        .grid-item {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f9f9f9;
+        }
+        
+        .grid-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .grid-label {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .grid-item {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>Select Image</h2>
+        
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-text">
+                📁 Drag & drop images here<br>
+                or click to select files
+            </div>
+            <div class="upload-progress" id="uploadProgress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+        </div>
+        
+        <input type="file" id="fileInput" accept="image/*" multiple style="display: none;">
+        
+        <ul id="imageList" class="image-list">
+            <li class="no-images">Loading images...</li>
+        </ul>
+    </div>
+    
+    <div class="main-content">
+        <div class="container">
+            <h1>Image Viewer</h1>
+            <img id="imageDisplay" src="" alt="Displayed Image" onerror="handleImageError()">
+            <div id="status" class="status checking">Select an image to start viewing</div>
+            <div class="info">
+                <p id="currentImagePath">No image selected</p>
+                <p>Reloading image every 1 second</p>
+                <p>Images from: /Users/aditmeh/Desktop/test_images</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let reloadInterval;
+        let currentImagePath = '';
+        let availableImages = [];
+        let websocket = null;
+        let splitMode = false;
+        let splitImages = null;
+        
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
+        }
+        
+        function updateCurrentImagePath(path) {
+            const pathElement = document.getElementById('currentImagePath');
+            pathElement.textContent = path || 'No image selected';
+        }
+        
+        function handleImageError() {
+            updateStatus('Error: Image not found or cannot be loaded', 'error');
+        }
+        
+        function reloadImage() {
+            if (!currentImagePath) return;
+            
+            const imageElement = document.getElementById('imageDisplay');
+            
+            // Add timestamp to force browser to reload the image
+            const timestamp = new Date().getTime();
+            const newSrc = `${currentImagePath}?t=${timestamp}`;
+            
+            // Reload the main image
+            imageElement.src = newSrc;
+            
+            // Also reload thumbnails to show any changes
+            reloadThumbnails();
+        }
+        
+        function reloadThumbnails() {
+            // Reload all thumbnail images in the sidebar
+            const thumbnailImages = document.querySelectorAll('.image-preview');
+            const timestamp = new Date().getTime();
+            
+            thumbnailImages.forEach(img => {
+                const currentSrc = img.src.split('?')[0]; // Remove existing timestamp
+                img.src = `${currentSrc}?t=${timestamp}`;
+            });
+        }
+        
+        function startImageReloading() {
+            if (!currentImagePath) return;
+            
+            updateStatus('Image reloading every 1 second', 'checking');
+            
+            // Reload immediately
+            reloadImage();
+            
+            // Then reload every 1 second (1000ms)
+            reloadInterval = setInterval(reloadImage, 1000);
+        }
+        
+        function stopImageReloading() {
+            if (reloadInterval) {
+                clearInterval(reloadInterval);
+                updateStatus('Image reloading stopped', 'checking');
+            }
+        }
+        
+        function selectImage(imagePath) {
+            // Stop current reloading
+            stopImageReloading();
+            
+            // Turn off split mode when selecting a new image
+            splitMode = false;
+            splitImages = null;
+            hideSplitView();
+            
+            // Update current image path
+            currentImagePath = imagePath;
+            updateCurrentImagePath(imagePath);
+            
+            // Update selected item in sidebar
+            document.querySelectorAll('.image-item').forEach(item => {
+                item.classList.remove('selected');
+                // Check if this item contains the selected image
+                const itemImagePath = item.querySelector('img').src;
+                if (itemImagePath.includes(imagePath.split('/').pop())) {
+                    item.classList.add('selected');
+                }
+            });
+            
+            // Load the new image
+            const imageElement = document.getElementById('imageDisplay');
+            imageElement.src = imagePath;
+            
+            // Notify server of current image selection (if WebSocket is connected)
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                const imageName = imagePath.split('/').pop();
+                websocket.send(JSON.stringify({
+                    type: 'browser_image_selected',
+                    image: imageName
+                }));
+            }
+            
+            // Start reloading the new image
+            startImageReloading();
+        }
+        
+        function showSplitView(data) {
+            splitMode = true;
+            splitImages = data;
+            
+            const imageDisplay = document.getElementById('imageDisplay');
+            const container = imageDisplay.parentElement;
+            
+            // Create grid container
+            const gridContainer = document.createElement('div');
+            gridContainer.id = 'imageGrid';
+            gridContainer.className = 'image-grid';
+            
+            // Create grid items
+            const images = [
+                { src: `/images/${data.original}`, label: 'Original' },
+                { src: `/images/${data.red}`, label: 'Red Channel' },
+                { src: `/images/${data.green}`, label: 'Green Channel' },
+                { src: `/images/${data.blue}`, label: 'Blue Channel' }
+            ];
+            
+            images.forEach((img, index) => {
+                const gridItem = document.createElement('div');
+                gridItem.className = 'grid-item';
+                
+                const imgElement = document.createElement('img');
+                imgElement.src = img.src;
+                imgElement.alt = img.label;
+                
+                const label = document.createElement('div');
+                label.className = 'grid-label';
+                label.textContent = img.label;
+                
+                gridItem.appendChild(imgElement);
+                gridItem.appendChild(label);
+                gridContainer.appendChild(gridItem);
+            });
+            
+            // Hide original image and show grid
+            imageDisplay.style.display = 'none';
+            container.appendChild(gridContainer);
+            
+            updateStatus('RGB Channel Split View', 'updated');
+        }
+        
+        function hideSplitView() {
+            const imageDisplay = document.getElementById('imageDisplay');
+            const gridContainer = document.getElementById('imageGrid');
+            
+            if (gridContainer) {
+                gridContainer.remove();
+            }
+            
+            imageDisplay.style.display = 'block';
+        }
+        
+        function exitSplitView(data) {
+            // Turn off split mode
+            splitMode = false;
+            splitImages = null;
+            
+            // Hide the grid
+            hideSplitView();
+            
+            // Reload the original image (which may have been replaced)
+            const imagePath = `/images/${data.original}`;
+            const imageElement = document.getElementById('imageDisplay');
+            
+            // Force reload by adding timestamp
+            const timestamp = new Date().getTime();
+            imageElement.src = `${imagePath}?t=${timestamp}`;
+            
+            // Update status
+            updateStatus(`Selected ${data.selected_channel} - Image reloaded`, 'updated');
+            
+            // Start reloading the updated image
+            startImageReloading();
+        }
+        
+        async function loadImageList() {
+            const imageList = document.getElementById('imageList');
+            
+            try {
+                // Load the actual image list from the Node.js server
+                const response = await fetch('/api/images');
+                if (response.ok) {
+                    const images = await response.json();
+                    displayImages(images);
+                } else {
+                    imageList.innerHTML = '<li class="no-images">Error loading images from server</li>';
+                }
+            } catch (error) {
+                imageList.innerHTML = '<li class="no-images">Server not running. Run: npm start</li>';
+            }
+        }
+        
+        function displayImages(images) {
+            const imageList = document.getElementById('imageList');
+            
+            if (images.length === 0) {
+                imageList.innerHTML = '<li class="no-images">No images found in test_images folder</li>';
+                return;
+            }
+            
+            imageList.innerHTML = '';
+            availableImages = images;
+            
+            images.forEach((imageName, index) => {
+                const imagePath = `/images/${imageName}`;
+                const listItem = document.createElement('li');
+                listItem.className = 'image-item';
+                listItem.onclick = () => selectImage(imagePath);
+                
+                // Add timestamp to force fresh thumbnail loading
+                const timestamp = new Date().getTime();
+                const thumbnailSrc = `${imagePath}?t=${timestamp}`;
+                
+                listItem.innerHTML = `
+                    <img class="image-preview" src="${thumbnailSrc}" alt="${imageName}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHZpZXdCb3g9IjAgMCA1MCA1MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjUwIiBoZWlnaHQ9IjUwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik0yMCAyMEgzMFYzMEgyMFYyMFoiIGZpbGw9IiNDQ0MiLz4KPHN2Zz4K'">
+                    <span class="image-name">${imageName}</span>
+                    <button class="delete-btn" onclick="deleteImage('${imageName}', event)">Delete</button>
+                `;
+                
+                imageList.appendChild(listItem);
+            });
+            
+            // Auto-select the first image if none is currently selected
+            if (!currentImagePath && images.length > 0) {
+                const firstImagePath = `/images/${images[0]}`;
+                selectImage(firstImagePath);
+            }
+        }
+        
+        // Upload functionality
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            const progressBar = document.getElementById('uploadProgress');
+            const progressFill = document.getElementById('progressFill');
+            
+            progressBar.style.display = 'block';
+            progressFill.style.width = '0%';
+            
+            fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    progressFill.style.width = '100%';
+                    setTimeout(() => {
+                        progressBar.style.display = 'none';
+                        loadImageList(); // Reload the image list
+                    }, 500);
+                } else {
+                    alert('Upload failed: ' + data.error);
+                    progressBar.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Upload error:', error);
+                alert('Upload failed');
+                progressBar.style.display = 'none';
+            });
+        }
+        
+        function deleteImage(filename, event) {
+            event.stopPropagation(); // Prevent image selection
+            
+            if (confirm(`Are you sure you want to delete "${filename}"?`)) {
+                fetch(`/api/images/${filename}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        loadImageList(); // Reload the image list
+                    } else {
+                        alert('Delete failed: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Delete error:', error);
+                    alert('Delete failed');
+                });
+            }
+        }
+        
+        // Drag and drop functionality
+        function setupDragAndDrop() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            // Click to select files
+            uploadArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            // File input change
+            fileInput.addEventListener('change', (e) => {
+                const files = Array.from(e.target.files);
+                files.forEach(uploadFile);
+            });
+            
+            // Drag and drop events
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                
+                const files = Array.from(e.dataTransfer.files);
+                files.forEach(uploadFile);
+            });
+        }
+        
+        // WebSocket functions
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}`;
+            
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = function() {
+                console.log('WebSocket connected');
+                // Register as browser client
+                websocket.send(JSON.stringify({
+                    type: 'browser_connect'
+                }));
+            };
+            
+            websocket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'image_selected') {
+                        // Terminal selected an image
+                        const imagePath = `/images/${data.image}`;
+                        selectImage(imagePath);
+                    } else if (data.type === 'image_split') {
+                        // Terminal split an image
+                        showSplitView(data);
+                    } else if (data.type === 'exit_split_view') {
+                        // Exit split view and reload the image
+                        exitSplitView(data);
+                    }
+                } catch (error) {
+                    console.error('WebSocket message error:', error);
+                }
+            };
+            
+            websocket.onclose = function() {
+                console.log('WebSocket disconnected');
+                // Try to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            websocket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        // Load image list when page loads
+        window.addEventListener('load', () => {
+            loadImageList();
+            setupDragAndDrop();
+            connectWebSocket();
+        });
+        
+        // Stop reloading when the page is unloaded
+        window.addEventListener('beforeunload', stopImageReloading);
+        
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'r' || event.key === 'R') {
+                // Manual refresh
+                reloadImage();
+            } else if (event.key === 's' || event.key === 'S') {
+                // Toggle reloading
+                if (reloadInterval) {
+                    stopImageReloading();
+                } else {
+                    startImageReloading();
+                }
+            }
+        });
+        
+        // Display keyboard shortcuts info
+        document.addEventListener('DOMContentLoaded', function() {
+            const info = document.querySelector('.info');
+            info.innerHTML += '<p>Keyboard shortcuts: R = Manual reload, S = Start/Stop auto-reload</p>';
+        });
+    </script>
+</body>
+</html>
