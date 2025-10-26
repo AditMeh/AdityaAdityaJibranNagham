@@ -424,6 +424,37 @@ async function handleWebSocketMessage(ws, data) {
         } catch (error) {
             console.error('Channel selection broadcast error:', error);
         }
+    } else if (data.type === 'voice_command' && ws === terminalConnection) {
+        // Terminal sent a voice command - broadcast to browsers
+        const broadcastData = {
+            type: 'voice_command',
+            command: data.command,
+            timestamp: data.timestamp || new Date().toISOString()
+        };
+        
+        browserConnections.forEach(browser => {
+            if (browser.readyState === WebSocket.OPEN) {
+                browser.send(JSON.stringify(broadcastData));
+            }
+        });
+        
+        console.log(`🎤 Voice command: "${data.command}"`);
+    } else if (data.type === 'voice_status' && ws === terminalConnection) {
+        // Terminal sent voice status update - broadcast to browsers
+        const broadcastData = {
+            type: 'voice_status',
+            enabled: data.enabled,
+            status: data.status,
+            timestamp: new Date().toISOString()
+        };
+        
+        browserConnections.forEach(browser => {
+            if (browser.readyState === WebSocket.OPEN) {
+                browser.send(JSON.stringify(broadcastData));
+            }
+        });
+        
+        console.log(`🎤 Voice status: ${data.status} (enabled: ${data.enabled})`);
     }
 }
 

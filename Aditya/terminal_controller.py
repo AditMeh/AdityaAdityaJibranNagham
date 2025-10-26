@@ -201,7 +201,7 @@ class ImageViewerController:
         # Audio configuration
         self.SAMPLERATE = 16000
         self.CHANNELS = 1
-        self.SILENCE_THRESHOLD = 0.01
+        self.SILENCE_THRESHOLD = 0.053
         self.MIN_DURATION = 1
         self.MAX_DURATION = 10
         self.SILENCE_TIME = 1.5
@@ -512,6 +512,13 @@ class ImageViewerController:
         command = command_text.lower().strip()
         print(f"🎯 Processing voice command: '{command}'")
         
+        # Send voice command to web interface
+        self.send_command({
+            "type": "voice_command",
+            "command": command_text,
+            "timestamp": time.time()
+        })
+        
         # Map voice commands to actions
         if command in ['list', 'list images', 'show images', 'ls']:
             return self.list_images()
@@ -573,6 +580,14 @@ class ImageViewerController:
         self.voice_enabled = not self.voice_enabled
         status = "enabled" if self.voice_enabled else "disabled"
         print(f"🎤 Voice control {status}")
+        
+        # Send status update to web interface
+        self.send_command({
+            "type": "voice_status",
+            "enabled": self.voice_enabled,
+            "status": status
+        })
+        
         if self.voice_enabled:
             self.show_voice_help()
         return True
@@ -858,8 +873,22 @@ class ImageViewerController:
                     
                     # Voice control mode
                     print("🎤 Listening for voice command...")
+                    # Send listening status
+                    self.send_command({
+                        "type": "voice_status",
+                        "enabled": True,
+                        "status": "listening"
+                    })
+                    
                     audio_b64 = self.record_until_silence()
                     if audio_b64:
+                        # Send processing status
+                        self.send_command({
+                            "type": "voice_status",
+                            "enabled": True,
+                            "status": "processing"
+                        })
+                        
                         command_text = self.transcribe_audio(audio_b64)
                         if command_text:
                             self.process_voice_command(command_text)

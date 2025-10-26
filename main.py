@@ -57,7 +57,7 @@ def process_image_with_voice(image_path: str):
 
                 if edit.get('generative'):
                     print("Generative edit is not yet implemented.")
-                    """ Fill in the generative part here"""
+                    """ Fill in the generative part here""" # TODO: Implement the generative part
                     continue
 
                 action_str = edit.get('action')
