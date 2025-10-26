@@ -12,7 +12,7 @@ const WebSocket = require('ws');
 
 const app = express();
 const PORT = 3000;
-const testImagesPath = '/Users/aditmeh/Desktop/test_images';
+const testImagesPath = './test_images';
 
 // Common image extensions
 const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'];
@@ -91,7 +91,7 @@ app.get('/images/:filename', (req, res) => {
         return res.status(404).send('Image not found');
     }
     
-    res.sendFile(imagePath);
+    res.sendFile(resolvedPath);
 });
 
 // Upload image endpoint

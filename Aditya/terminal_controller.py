@@ -19,6 +19,7 @@ import base64
 import openai
 import re
 import anthropic
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -133,6 +134,48 @@ def get_lm_output(prompt):
         # print(f"Error: {e}")
         return None
     return json_array
+
+def process_generative_edit(image_path, prompt, gpu_server_url="http://localhost:6000/generate"):
+    """Process a generative edit using the GPU server."""
+    try:
+        print(f"🎨 Processing generative edit: '{prompt}'")
+        print("⏳ This may take 20-30 seconds...")
+        
+        with open(image_path, "rb") as image_file:
+            files = {
+                "image": image_file,
+            }
+            data = {
+                "prompt": prompt,
+            }
+            
+            # Make request with timeout
+            response = requests.post(gpu_server_url, files=files, data=data, timeout=60)
+            
+            if response.status_code == 200:
+                # Save the generated image back to the original path
+                with open(image_path, "wb") as out_file:
+                    print(f"✓ Writing generated image to {image_path}")
+                    
+                    with open("thingy.png", "wb") as f:
+                        f.write(response.content)
+                    
+                    out_file.write(response.content)
+                print(f"✓ Generative edit completed: '{prompt}' → {image_path}")
+                return True
+            else:
+                print(f"✗ Generative edit failed with status {response.status_code}: {response.text}")
+                return False
+                
+    except requests.exceptions.Timeout:
+        print("✗ Generative edit timed out (60s)")
+        return False
+    except requests.exceptions.ConnectionError:
+        print("✗ Could not connect to GPU server. Make sure it's running on localhost:6000")
+        return False
+    except Exception as e:
+        print(f"✗ Generative edit error: {e}")
+        return False
 
 class ImageViewerController:
     def __init__(self, server_url="ws://localhost:3000"):
@@ -305,7 +348,7 @@ class ImageViewerController:
     def process_image_undo(self, image_name):
         """Process the image undo using backup"""
         try:
-            test_images_path = '/Users/aditmeh/Desktop/test_images'
+            test_images_path = './test_images'
             image_path = os.path.join(test_images_path, image_name)
             
             # Get base name and extension
@@ -474,7 +517,7 @@ class ImageViewerController:
             return self.list_images()
         elif command in ['current', 'current image', 'what image', 'show current']:
             return self.get_current_image()
-        elif command in ['revert', 'revert image', 'restore', 'go back']:
+        elif 'revert' in command or command in ['restore', 'go back']:
             return self.undo_image()
         elif command.startswith('open ') or command.startswith('select '):
             # Extract image name from "open filename" or "select filename"
@@ -596,7 +639,7 @@ class ImageViewerController:
     def process_image_edits(self, image_name, edits):
         """Process a list of image edits on the current image."""
         try:
-            test_images_path = '/Users/aditmeh/Desktop/test_images'
+            test_images_path = './test_images'
             image_path = os.path.join(test_images_path, image_name)
             
             if not os.path.exists(image_path):
@@ -608,32 +651,41 @@ class ImageViewerController:
             ext = os.path.splitext(image_name)[1]
             old_image_path = os.path.join(test_images_path, f"{base_name}_old{ext}")
             
-            # Load the current image
-            with Image.open(image_path) as img:
-                # Create backup
-                img.save(old_image_path)
+            # Create backup first
+            with Image.open(image_path) as backup_img:
+                backup_img.save(old_image_path)
                 print(f"✓ Created backup: {base_name}_old{ext}")
+            
+            # Process each edit sequentially
+            for edit in edits:
+                print(f"Processing edit: {edit}")
                 
-                # Process each edit
-                for edit in edits:
-                    print(f"Processing edit: {edit}")
+                if edit.get('generative'):
+                    # Process generative edit using GPU server
+                    prompt = edit.get('prompt', '')
+                    if prompt:
+                        success = process_generative_edit(image_path, prompt)
+                        if not success:
+                            print(f"⚠️ Generative edit failed: '{prompt}'")
+                    else:
+                        print("⚠️ No prompt provided for generative edit")
+                    continue
+                
+                # Handle native edits
+                action_str = edit.get('action')
+                if not action_str or not isinstance(action_str, str):
+                    print(f"Invalid action format: {action_str}")
+                    continue
+                
+                # Parse action string e.g., '(rotate, 90)' -> 'rotate', ['90']
+                try:
+                    cleaned_str = action_str.strip().strip('()')
+                    parts = [p.strip() for p in cleaned_str.split(',')]
+                    action_name = parts[0]
+                    params = [p for p in parts[1:] if p]  # Filter out empty strings
                     
-                    if edit.get('generative'):
-                        print("⚠️ Generative edit not yet implemented.")
-                        continue
-                    
-                    action_str = edit.get('action')
-                    if not action_str or not isinstance(action_str, str):
-                        print(f"Invalid action format: {action_str}")
-                        continue
-                    
-                    # Parse action string e.g., '(rotate, 90)' -> 'rotate', ['90']
-                    try:
-                        cleaned_str = action_str.strip().strip('()')
-                        parts = [p.strip() for p in cleaned_str.split(',')]
-                        action_name = parts[0]
-                        params = [p for p in parts[1:] if p]  # Filter out empty strings
-                        
+                    # Load current image for native edit
+                    with Image.open(image_path) as img:
                         if action_name == 'vflip':
                             img = vflip(img)
                             print("Applied 'vflip' successfully.")
@@ -650,6 +702,7 @@ class ImageViewerController:
                                 print(f"Applied 'rotate' with {degrees} degrees.")
                             else:
                                 print("Error: 'rotate' requires one parameter (degrees).")
+                                continue
                         elif action_name == 'saturation':
                             if len(params) == 1:
                                 factor = float(params[0])
@@ -657,6 +710,7 @@ class ImageViewerController:
                                 print(f"Applied 'saturation' with factor {factor}.")
                             else:
                                 print("Error: 'saturation' requires one parameter (factor).")
+                                continue
                         elif action_name == 'sharpness':
                             if len(params) == 1:
                                 factor = float(params[0])
@@ -664,6 +718,7 @@ class ImageViewerController:
                                 print(f"Applied 'sharpness' with factor {factor}.")
                             else:
                                 print("Error: 'sharpness' requires one parameter (factor).")
+                                continue
                         elif action_name == 'resize':
                             if len(params) == 2:
                                 try:
@@ -675,24 +730,29 @@ class ImageViewerController:
                                     print(f"Applied 'resize' with size {size}.")
                                 except (AttributeError, ValueError):
                                     print(f"Error: could not parse width/height from resize parameters: {params}")
+                                    continue
                             else:
                                 print("Error: 'resize' requires two parameters (width, height).")
+                                continue
                         else:
                             print(f"Unknown action: '{action_name}'")
-                    
-                    except ValueError as e:
-                        print(f"Error converting parameter for '{action_name}': {e}")
-                    except Exception as e:
-                        print(f"Error applying edit '{action_name}': {e}")
+                            continue
+                        
+                        # Save the native edit immediately
+                        img.save(image_path)
+                        print(f"✓ Saved native edit: {action_name}")
                 
-                # Save the modified image
-                img.save(image_path)
-                print(f"✓ Applied edits to: {image_name}")
-                
-                # Clear processing flag to allow new voice commands
-                self.processing_edit = False
-                self.processing_start_time = None
-                return True
+                except ValueError as e:
+                    print(f"Error converting parameter for '{action_name}': {e}")
+                except Exception as e:
+                    print(f"Error applying edit '{action_name}': {e}")
+            
+            print(f"✓ All edits completed for: {image_name}")
+            
+            # Clear processing flag to allow new voice commands
+            self.processing_edit = False
+            self.processing_start_time = None
+            return True
                 
         except Exception as e:
             print(f"✗ Error processing image edits: {e}")
@@ -704,7 +764,7 @@ class ImageViewerController:
     def find_and_select_image(self, search_term):
         """Find an image by partial name match and select it."""
         try:
-            test_images_path = '/Users/aditmeh/Desktop/test_images'
+            test_images_path = './test_images'
             
             if not os.path.exists(test_images_path):
                 print("✗ Images directory not found")
@@ -754,7 +814,7 @@ class ImageViewerController:
                     print(f"  {i}. {image}")
                 print("Please be more specific or use the exact filename")
                 return False
-                
+            
         except Exception as e:
             print(f"✗ Error finding image: {e}")
             return False
@@ -786,8 +846,8 @@ class ImageViewerController:
                 if self.voice_enabled:
                     # Check if we're processing an edit
                     if self.processing_edit:
-                        # Check for timeout (30 seconds max processing time)
-                        if self.processing_start_time and time.time() - self.processing_start_time > 30:
+                        # Check for timeout (90 seconds max processing time for generative edits)
+                        if self.processing_start_time and time.time() - self.processing_start_time > 90:
                             print("⏱️ Processing timeout - resetting voice control")
                             self.processing_edit = False
                             self.processing_start_time = None
