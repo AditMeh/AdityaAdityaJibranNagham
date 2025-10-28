@@ -455,6 +455,21 @@ async function handleWebSocketMessage(ws, data) {
         });
         
         console.log(`🎤 Voice status: ${data.status} (enabled: ${data.enabled})`);
+    } else if (data.type === 'lm_output' && ws === terminalConnection) {
+        // Terminal sent LM output - broadcast to browsers
+        const broadcastData = {
+            type: 'lm_output',
+            edit: data.edit,
+            timestamp: data.timestamp || new Date().toISOString()
+        };
+        
+        browserConnections.forEach(browser => {
+            if (browser.readyState === WebSocket.OPEN) {
+                browser.send(JSON.stringify(broadcastData));
+            }
+        });
+        
+        console.log(`🧠 LM output: ${JSON.stringify(data.edit)}`);
     }
 }
 

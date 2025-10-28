@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Viewer</title>
+    <title>HiggsArt</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -320,9 +320,65 @@
             color: #333;
             font-style: italic;
         }
+        
+        .lm-output-panel {
+            position: fixed;
+            top: 120px;
+            right: 20px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            min-width: 250px;
+            max-width: 350px;
+            z-index: 1000;
+        }
+        
+        .lm-output-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        
+        .lm-output-content {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .lm-output-item {
+            margin-bottom: 8px;
+            padding: 5px;
+            background: #fff;
+            border-radius: 3px;
+            border-left: 3px solid #1976d2;
+        }
+        
+        .lm-output-timestamp {
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 3px;
+        }
     </style>
 </head>
 <body>
+    <div class="lm-output-panel">
+        <div class="lm-output-title">🧠 LM Output</div>
+        <div class="lm-output-content" id="lmOutputContent">
+            <div class="no-output">No LM output yet...</div>
+        </div>
+    </div>
+    
     <div class="voice-control-panel">
         <div class="voice-status">
             <div class="status-indicator disabled" id="voiceStatusIndicator"></div>
@@ -358,7 +414,7 @@
     
     <div class="main-content">
         <div class="container">
-            <h1>Image Viewer</h1>
+            <h1>HiggsArt</h1>
             <img id="imageDisplay" src="" alt="Displayed Image" onerror="handleImageError()">
             <div id="status" class="status checking">Select an image to start viewing</div>
             <div class="info">
@@ -735,6 +791,9 @@
                     } else if (data.type === 'voice_status') {
                         // Update voice control status
                         updateVoiceStatus(data);
+                    } else if (data.type === 'lm_output') {
+                        // Display LM output
+                        displayLMOutput(data);
                     }
                 } catch (error) {
                     console.error('WebSocket message error:', error);
@@ -819,6 +878,40 @@
                         statusIndicator.classList.add('disabled');
                         statusText.textContent = 'Voice Control Enabled';
                 }
+            }
+        }
+        
+        function displayLMOutput(data) {
+            const lmOutputContent = document.getElementById('lmOutputContent');
+            
+            // Remove "no output" message if it exists
+            const noOutputElement = lmOutputContent.querySelector('.no-output');
+            if (noOutputElement) {
+                noOutputElement.remove();
+            }
+            
+            // Create new output item
+            const outputItem = document.createElement('div');
+            outputItem.className = 'lm-output-item';
+            
+            // Format timestamp
+            const timestamp = new Date(data.timestamp * 1000).toLocaleTimeString();
+            
+            // Format the edit object as JSON
+            const editJson = JSON.stringify(data.edit, null, 2);
+            
+            outputItem.innerHTML = `
+                <div class="lm-output-timestamp">${timestamp}</div>
+                <div>${editJson}</div>
+            `;
+            
+            // Add to the top of the content
+            lmOutputContent.insertBefore(outputItem, lmOutputContent.firstChild);
+            
+            // Keep only the last 10 items
+            const items = lmOutputContent.querySelectorAll('.lm-output-item');
+            if (items.length > 10) {
+                items[items.length - 1].remove();
             }
         }
         

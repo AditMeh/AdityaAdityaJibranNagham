@@ -108,6 +108,58 @@ def sharpness(image: Image.Image, factor: float) -> Image.Image:
     enhancer = ImageEnhance.Sharpness(image)
     return enhancer.enhance(factor)
 
+def get_revert_steps(prompt):
+    """Parse revert steps from natural language using LM. Returns the number of steps as an integer."""
+    client = anthropic.Anthropic(
+        api_key=os.getenv("ANTHROPIC_API_KEY")
+    )
+
+    SYSTEM_PROMPT = """You are a number extractor for revert commands.
+
+    Task:
+    Given a natural-language instruction about reverting/undoing, extract ONLY the number of steps to revert.
+
+    Examples:
+    - "revert back 4 steps" → 4
+    - "go back 3 times" → 3
+    - "undo 2 steps" → 2
+    - "revert 5 steps back" → 5
+    - "go back 1 step" → 1
+    - "undo 10 times" → 10
+    - "revert back" → 1 (default to 1 if no number specified)
+    - "undo" → 1 (default to 1 if no number specified)
+
+    Rules:
+    - Extract ONLY the numerical digit
+    - If no number is specified, return 1
+    - If multiple numbers are mentioned, use the first one
+    - Normalize words like "one", "two", "three" to digits 1, 2, 3
+    - Return ONLY the number, no other text or explanation
+
+    Output format: Just the number as a string (e.g., "4", "1", "10")"""
+
+    message = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=10,
+        system=SYSTEM_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+    )
+    raw_output = message.content[0].text.strip()
+    
+    try:
+        # Extract just the number
+        number = int(raw_output)
+        return number
+    except ValueError:
+        # If parsing fails, default to 1
+        print(f"⚠️ Could not parse revert steps from '{prompt}', defaulting to 1")
+        return 1
+
 def get_lm_output(prompt):
     """Get the output from the LM, returns a JSON array of objects with editing instructions."""
     client = anthropic.Anthropic(
@@ -319,6 +371,7 @@ class ImageViewerController:
         
         # Voice control configuration
         self.voice_enabled = False
+        self.voice_paused = False  # Flag to pause voice recording
         self.processing_edit = False  # Flag to prevent new voice commands during editing
         self.processing_start_time = None  # Track when processing started
         self.boson_api_key = "bai-AX1rxmAyXUSCH-w_mo0udvxL_m47OTzYVJLfdYd6oluOYYnR"
@@ -339,6 +392,9 @@ class ImageViewerController:
         self.MAX_DURATION = 10
         self.SILENCE_TIME = 1.5
         
+        # Permanent backup system
+        self.image_undo_counts = {}  # Track undo count per image
+        
     def on_message(self, ws, message):
         """Handle messages from the server"""
         try:
@@ -350,6 +406,24 @@ class ImageViewerController:
                 print(f"✓ {data['message']}")
             elif data['type'] == 'error':
                 print(f"✗ {data['message']}")
+            elif data['type'] == 'voice_pause':
+                self.voice_paused = True
+                print("⏸️ Voice recording paused by user")
+                # Send status update to web interface
+                self.send_command({
+                    "type": "voice_status",
+                    "enabled": self.voice_enabled,
+                    "status": "paused"
+                })
+            elif data['type'] == 'voice_resume':
+                self.voice_paused = False
+                print("▶️ Voice recording resumed by user")
+                # Send status update to web interface
+                self.send_command({
+                    "type": "voice_status",
+                    "enabled": self.voice_enabled,
+                    "status": "waiting"
+                })
             elif data['type'] == 'image_list':
                 images = data['images']
                 if images:
@@ -361,10 +435,16 @@ class ImageViewerController:
             elif data['type'] == 'current_image':
                 if data['image']:
                     print(f"Currently selected: {data['image']}")
+                    # Track current image name for undo status
+                    self._current_image_name = data['image']
                     # If we're in undo mode, process the image
                     if hasattr(self, '_undo_pending') and self._undo_pending:
                         self._undo_pending = False
                         self.process_image_undo(data['image'])
+                    # If we're in multi-step undo mode, process the multi-step undo
+                    elif hasattr(self, '_multi_undo_pending') and self._multi_undo_pending:
+                        self._multi_undo_pending = False
+                        self.process_multi_step_undo(data['image'], self._pending_undo_steps)
                     # If we're in image editing mode, process the edits
                     elif hasattr(self, '_editing_pending') and self._editing_pending:
                         self._editing_pending = False
@@ -372,6 +452,8 @@ class ImageViewerController:
                 else:
                     message = data.get('message', 'No image currently selected')
                     print(f"No image currently selected: {message}")
+                    # Clear current image name
+                    self._current_image_name = None
                     # If we're in editing mode but no image, clear the processing flag
                     if hasattr(self, '_editing_pending') and self._editing_pending:
                         self._editing_pending = False
@@ -467,7 +549,7 @@ class ImageViewerController:
     
     
     def undo_image(self):
-        """Restore image from backup and delete backup"""
+        """Restore image from most recent backup"""
         # Set flag to process undo when we get current image
         self._undo_pending = True
         # First get the current image
@@ -478,35 +560,157 @@ class ImageViewerController:
         time.sleep(0.1)
         return True
     
+    def undo_multiple_steps(self, steps):
+        """Undo multiple steps at once"""
+        # Set flag to process multi-step undo when we get current image
+        self._multi_undo_pending = True
+        self._pending_undo_steps = steps
+        # First get the current image
+        if not self.send_command({"type": "get_current_image"}):
+            return False
+        
+        # Wait for response
+        time.sleep(0.1)
+        return True
+    
     def process_image_undo(self, image_name):
-        """Process the image undo using backup"""
+        """Process the image undo using most recent backup (highest numbered _old file) and delete it"""
         try:
             test_images_path = './test_images'
             image_path = os.path.join(test_images_path, image_name)
             
-            # Get base name and extension
             base_name = os.path.splitext(image_name)[0]
             ext = os.path.splitext(image_name)[1]
-            old_image_path = os.path.join(test_images_path, f"{base_name}_old{ext}")
             
-            if not os.path.exists(old_image_path):
-                print(f"✗ No backup found for '{image_name}'")
-                print(f"Expected backup: {base_name}_old{ext}")
+            # Find all existing backup files and get the highest number
+            highest_number = 0
+            backup_files = []
+            
+            for file in os.listdir(test_images_path):
+                if file.startswith(f"{base_name}_old") and file.endswith(ext):
+                    try:
+                        # Extract number from filename like "image_old1.png" -> 1
+                        number_part = file[len(f"{base_name}_old"):-len(ext)]
+                        if number_part.isdigit():
+                            number = int(number_part)
+                            backup_files.append((number, file))
+                            highest_number = max(highest_number, number)
+                    except ValueError:
+                        continue
+            
+            if highest_number == 0:
+                print(f"✗ No backups available for '{image_name}'")
+                print("You can only undo after making edits to an image")
                 return False
             
-            # Restore from backup
-            with Image.open(old_image_path) as backup_img:
-                backup_img.save(image_path)
-                print(f"✓ Restored image from backup: {image_name}")
+            # Use the highest numbered backup (most recent)
+            most_recent_backup = os.path.join(test_images_path, f"{base_name}_old{highest_number}{ext}")
             
-            # Delete the backup
-            os.remove(old_image_path)
-            print(f"✓ Deleted backup: {base_name}_old{ext}")
+            if not os.path.exists(most_recent_backup):
+                print(f"✗ Backup file not found: {base_name}_old{highest_number}{ext}")
+                return False
+            
+            # Restore from most recent backup
+            with Image.open(most_recent_backup) as backup_img:
+                backup_img.save(image_path)
+                print(f"✓ Restored image from backup: {base_name}_old{highest_number}{ext}")
+            
+            # Delete the used backup
+            os.remove(most_recent_backup)
+            print(f"✓ Deleted backup: {base_name}_old{highest_number}{ext}")
+            
+            # Update undo count to reflect remaining backups
+            self.image_undo_counts[image_name] = highest_number - 1
+            
+            # Show remaining undo count
+            remaining = self.image_undo_counts[image_name]
+            if remaining > 0:
+                print(f"📊 Remaining undos: {remaining}")
+                print(f"📊 Next backup to restore: {base_name}_old{remaining}{ext}")
+            else:
+                print("📊 No more undos available for this image")
             
             return True
                 
         except Exception as e:
             print(f"✗ Error undoing image: {e}")
+            return False
+    
+    def process_multi_step_undo(self, image_name, steps):
+        """Process multi-step undo: restore from target backup and delete all backups from target to highest"""
+        try:
+            test_images_path = './test_images'
+            image_path = os.path.join(test_images_path, image_name)
+            
+            base_name = os.path.splitext(image_name)[0]
+            ext = os.path.splitext(image_name)[1]
+            
+            # Find all existing backup files and get the highest number
+            highest_number = 0
+            backup_files = []
+            
+            for file in os.listdir(test_images_path):
+                if file.startswith(f"{base_name}_old") and file.endswith(ext):
+                    try:
+                        # Extract number from filename like "image_old1.png" -> 1
+                        number_part = file[len(f"{base_name}_old"):-len(ext)]
+                        if number_part.isdigit():
+                            number = int(number_part)
+                            backup_files.append((number, file))
+                            highest_number = max(highest_number, number)
+                    except ValueError:
+                        continue
+            
+            if highest_number == 0:
+                print(f"✗ No backups available for '{image_name}'")
+                print("You can only undo after making edits to an image")
+                return False
+            
+            # Calculate target backup number
+            target_number = highest_number - steps + 1
+            
+            if target_number < 1:
+                print(f"✗ Cannot undo {steps} steps - only {highest_number} backups available")
+                print(f"Maximum undo: {highest_number} steps")
+                return False
+            
+            # Check if target backup exists
+            target_backup = os.path.join(test_images_path, f"{base_name}_old{target_number}{ext}")
+            if not os.path.exists(target_backup):
+                print(f"✗ Target backup not found: {base_name}_old{target_number}{ext}")
+                return False
+            
+            # Restore from target backup
+            with Image.open(target_backup) as backup_img:
+                backup_img.save(image_path)
+                print(f"✓ Restored image from backup: {base_name}_old{target_number}{ext}")
+            
+            # Delete all backups from target to highest (inclusive)
+            deleted_count = 0
+            for i in range(target_number, highest_number + 1):
+                backup_to_delete = os.path.join(test_images_path, f"{base_name}_old{i}{ext}")
+                if os.path.exists(backup_to_delete):
+                    os.remove(backup_to_delete)
+                    deleted_count += 1
+                    print(f"✓ Deleted backup: {base_name}_old{i}{ext}")
+            
+            # Update undo count to reflect remaining backups
+            self.image_undo_counts[image_name] = target_number - 1
+            
+            # Show remaining undo count
+            remaining = self.image_undo_counts[image_name]
+            print(f"📊 Multi-step undo completed: {steps} steps")
+            print(f"📊 Deleted {deleted_count} backup files")
+            if remaining > 0:
+                print(f"📊 Remaining undos: {remaining}")
+                print(f"📊 Next backup to restore: {base_name}_old{remaining}{ext}")
+            else:
+                print("📊 No more undos available for this image")
+            
+            return True
+                
+        except Exception as e:
+            print(f"✗ Error processing multi-step undo: {e}")
             return False
     
     def record_until_silence(self):
@@ -526,6 +730,11 @@ class ImageViewerController:
         try:
             with sd.InputStream(samplerate=self.SAMPLERATE, channels=self.CHANNELS, dtype=np.float32) as stream:
                 while True:
+                    # Check if voice recording is paused
+                    if self.voice_paused:
+                        print("⏸️ Recording paused by user — stopping.")
+                        break
+                        
                     # Check if we've been listening too long
                     if time.time() - listen_start > MAX_LISTEN_TIME:
                         print("⏱️ Listening timeout (30s) — stopping.")
@@ -658,7 +867,15 @@ class ImageViewerController:
         elif command in ['current', 'current image', 'what image', 'show current']:
             return self.get_current_image()
         elif 'revert' in command or command in ['restore', 'go back']:
-            return self.undo_image()
+            # Check if it's a multi-step revert command
+            if any(word in command for word in ['steps', 'times', 'back']):
+                # Use LM to parse the number of steps
+                steps = get_revert_steps(command)
+                print(f"🎯 Parsed revert command: '{command}' → {steps} steps")
+                return self.undo_multiple_steps(steps)
+            else:
+                # Single step revert
+                return self.undo_image()
         elif command.startswith('open ') or command.startswith('select '):
             # Extract image name from "open filename" or "select filename"
             parts = command.split(' ', 1)
@@ -689,7 +906,8 @@ class ImageViewerController:
         print("\n🎤 Available Voice Commands:")
         print("  'list' or 'list images'     - List available images")
         print("  'current' or 'current image' - Show currently selected image")
-        print("  'revert' or 'revert image'   - Restore image from backup")
+        print("  'revert' or 'revert image'   - Restore image from backup (unlimited)")
+        print("  'revert X steps' or 'go back X times' - Multi-step revert")
         print("  'open [filename]'            - Select an image")
         print("  'help' or 'commands'         - Show this help")
         print("  'quit' or 'exit'             - Exit the controller")
@@ -703,6 +921,12 @@ class ImageViewerController:
         print("  'increase saturation by 1.5'")
         print("  'resize to 800 by 600'")
         print()
+        print("📊 Smart Backup System:")
+        print("  - Each edit creates a backup (image_old1, image_old2, etc.)")
+        print("  - Use 'revert' to undo the most recent edit (deletes that backup)")
+        print("  - New edits reuse deleted backup numbers")
+        print("  - Highest number = most recent backup")
+        print()
     
     def toggle_voice_control(self):
         """Toggle voice control on/off."""
@@ -711,6 +935,10 @@ class ImageViewerController:
             return False
         
         self.voice_enabled = not self.voice_enabled
+        # Reset pause state when toggling voice control
+        if self.voice_enabled:
+            self.voice_paused = False
+        
         status = "enabled" if self.voice_enabled else "disabled"
         print(f"🎤 Voice control {status}")
         
@@ -784,6 +1012,60 @@ class ImageViewerController:
             self.processing_edit = False  # Reset flag
             return False
     
+    def create_backup(self, image_name):
+        """Create a backup of the image, reusing deleted numbers when possible."""
+        try:
+            test_images_path = './test_images'
+            image_path = os.path.join(test_images_path, image_name)
+            
+            if not os.path.exists(image_path):
+                print(f"✗ Image '{image_name}' not found")
+                return False
+            
+            base_name = os.path.splitext(image_name)[0]
+            ext = os.path.splitext(image_name)[1]
+            
+            # Find all existing backup numbers
+            existing_numbers = set()
+            highest_number = 0
+            
+            # Look for existing backup files
+            for file in os.listdir(test_images_path):
+                if file.startswith(f"{base_name}_old") and file.endswith(ext):
+                    try:
+                        # Extract number from filename like "image_old1.png" -> 1
+                        number_part = file[len(f"{base_name}_old"):-len(ext)]
+                        if number_part.isdigit():
+                            number = int(number_part)
+                            existing_numbers.add(number)
+                            highest_number = max(highest_number, number)
+                    except ValueError:
+                        continue
+            
+            # Find the next available number (reuse gaps if possible)
+            next_number = 1
+            while next_number in existing_numbers:
+                next_number += 1
+            
+            # If no gaps, use the next number after highest
+            if next_number <= highest_number:
+                next_number = highest_number + 1
+            
+            backup_path = os.path.join(test_images_path, f"{base_name}_old{next_number}{ext}")
+            
+            with Image.open(image_path) as backup_img:
+                backup_img.save(backup_path)
+                print(f"✓ Created backup: {base_name}_old{next_number}{ext}")
+            
+            # Update undo count (total backups available)
+            self.image_undo_counts[image_name] = next_number
+            
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error creating backup: {e}")
+            return False
+
     def process_image_edits(self, image_name, edits):
         """Process a list of image edits on the current image."""
         try:
@@ -795,18 +1077,19 @@ class ImageViewerController:
                 return False
             
             # Create backup before editing
-            base_name = os.path.splitext(image_name)[0]
-            ext = os.path.splitext(image_name)[1]
-            old_image_path = os.path.join(test_images_path, f"{base_name}_old{ext}")
-            
-            # Create backup first
-            with Image.open(image_path) as backup_img:
-                backup_img.save(old_image_path)
-                print(f"✓ Created backup: {base_name}_old{ext}")
+            if not self.create_backup(image_name):
+                print("⚠️ Failed to create backup, proceeding with edits anyway")
             
             # Process each edit sequentially
             for edit in edits:
                 print(f"Processing edit: {edit}")
+                
+                # Send LM output to web interface
+                self.send_command({
+                    "type": "lm_output",
+                    "edit": edit,
+                    "timestamp": time.time()
+                })
                 
                 if edit.get('generative'):
                     # Process generative edit using GPU server
@@ -1002,6 +1285,12 @@ class ImageViewerController:
         while self.running and self.connected:
             try:
                 if self.voice_enabled:
+                    # Check if voice recording is paused
+                    if self.voice_paused:
+                        print("⏸️ Voice recording paused - waiting for resume...")
+                        time.sleep(1)  # Wait a bit before checking again
+                        continue
+                    
                     # Check if we're processing an edit
                     if self.processing_edit:
                         # Check for timeout (90 seconds max processing time for generative edits)
