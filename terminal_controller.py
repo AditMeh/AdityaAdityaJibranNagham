@@ -374,7 +374,7 @@ class ImageViewerController:
         self.voice_paused = False  # Flag to pause voice recording
         self.processing_edit = False  # Flag to prevent new voice commands during editing
         self.processing_start_time = None  # Track when processing started
-        self.boson_api_key = "bai-AX1rxmAyXUSCH-w_mo0udvxL_m47OTzYVJLfdYd6oluOYYnR"
+        self.boson_api_key = os.getenv("BOSON_API_KEY")
         if self.boson_api_key:
             self.boson_client = openai.Client(
                 api_key=self.boson_api_key,
