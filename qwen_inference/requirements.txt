@@ -1,0 +1,24 @@
+# Core ML/AI libraries
+torch>=2.0.0
+transformers>=4.40.0
+diffusers>=0.30.0
+accelerate>=0.20.0
+bitsandbytes>=0.41.0
+
+# Image processing
+Pillow>=9.0.0
+
+# Web framework
+Flask>=2.0.0
+
+# Standard library dependencies (included with Python)
+# - sys
+# - threading  
+# - os
+# - random
+# - time
+# - io
+
+# Optional: For better performance and compatibility
+# safetensors>=0.3.0  # For LoRA weights
+# xformers>=0.0.20    # For memory efficiency (optional)
