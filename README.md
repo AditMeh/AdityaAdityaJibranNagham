@@ -1,119 +1,117 @@
-# Self-Contained Image Viewer with Terminal Control
+# HiggsArt: Voice-Controlled Image Editing
+Here is the demo video:
+[![HiggsArt Demo Video](https://img.youtube.com/vi/exdR0Wp0bSk/0.jpg)](https://www.youtube.com/watch?v=exdR0Wp0bSk)
 
-A Node.js-based image viewer that directly accesses your filesystem to display images with auto-reload functionality and terminal control.
+HiggsArt is an innovative image editing application that replaces traditional graphical user interfaces with a powerful, intuitive voice-controlled workflow. It allows users to perform a wide range of edits, from simple transformations to complex generative AI modifications, purely through spoken commands.
 
-## Features
+This project was developed for the Boson AI Hackathon, where it was recognized as a Top 16 finalist.
 
-- **Direct filesystem access** - Lists actual images from `/Users/aditmeh/Desktop/test_images`
-- **Image previews** - Shows thumbnails in a sidebar
-- **Auto-reload** - Selected image refreshes every 1 second
-- **Drag & drop upload** - Upload images directly from your browser
-- **Delete functionality** - Remove images with a click
-- **Terminal control** - Control image selection from command line
-- **Real-time communication** - WebSocket-based terminal-to-browser control
-- **Self-contained** - Single Node.js server handles everything
+## The Problem
 
-## Setup
+Traditional photo editing software like Photoshop or Pixlr can have steep learning curves and complex interfaces. For users who are not graphic design experts, or for those who prefer a faster, more iterative workflow, these tools can be time-consuming and unintuitive. HiggsArt was built to bridge this gap, making image editing accessible to everyone, regardless of their technical skill, by leveraging the power of natural language.
 
-1. **Install Node.js dependencies:**
-   ```bash
-   npm install
-   ```
+## Key Features
 
-2. **Install Python dependencies (for terminal control):**
-   ```bash
-   pip install -r requirements_python.txt
-   ```
+HiggsArt combines standard image processing techniques with cutting-edge generative AI, all accessible through a seamless voice interface.
 
-3. **Create your images folder:**
-   ```bash
-   mkdir -p /Users/aditmeh/Desktop/test_images
-   ```
+-   **Voice-First Interface**: Control the entire editing process without touching your mouse or keyboard. As soon as the application is running, it's ready for your voice commands.
+-   **Hybrid Editing Model**: The system intelligently distinguishes between simple, native operations and complex, generative tasks based on your intent.
+-   **Native Operations**: Fast, client-side execution for standard image manipulations, including:
+    -   Rotating and flipping
+    -   Resizing
+    -   Adjusting saturation and sharpness
+    -   Converting to grayscale
+-   **Generative AI Operations**: Leverages powerful AI models for complex edits, such as:
+    -   **In-painting**: Changing the color of objects, modifying textures, or altering specific parts of an image without regenerating the entire scene.
+    -   **Object Manipulation**: Adding, removing, or replacing objects within an image.
+    -   **Background Removal & Replacement**: Seamlessly segmenting and changing the background.
+-   **Multi-Image Composition**: Combine elements from multiple images. For example, "take the crown from this image and put it on the man in that image."
+-   **Intelligent Segmentation**: Use natural language to zoom into or crop specific objects (e.g., "zoom into the man's face").
+-   **Multi-Step Command Handling**: Chain multiple commands together in a single sentence (e.g., "Flip this image horizontally, rotate it 90 degrees, and then add a hat on the man."). The system parses and executes them in sequence.
+-   **Unlimited Undo/Revert**: An intelligent backup system allows you to revert one or multiple steps, giving you the freedom to experiment without fear of losing your work.
+-   **Real-time Web UI**: A clean web interface displays the selected image and reflects changes in real-time as you issue commands.
 
-4. **Add some images to the folder:**
-   ```bash
-   # Copy your images to the test_images folder
-   cp /path/to/your/images/* /Users/aditmeh/Desktop/test_images/
-   ```
+## How It Works
+
+HiggsArt is built on a distributed architecture that separates the user interface, backend logic, and AI processing into distinct components that communicate in real-time.
+
+1.  **Frontend (index.html)**: A simple HTML/CSS/JS single-page application that serves as the visual interface. It displays the image gallery and the currently edited image. It communicates with the backend via WebSockets to receive real-time updates.
+
+2.  **Backend Server (server.js)**: A Node.js and Express server that manages the core application state. It serves the frontend, provides an API for managing image files (list, upload, delete), and runs a WebSocket server that acts as a central hub, connecting the browser UI with the Python controller.
+
+3.  **Terminal Controller (terminal_controller.py)**: This is the brain of the application. The Python script connects to the Node.js WebSocket server and handles all the core logic:
+    -   **Audio Processing**: Captures microphone input, detects speech, and sends the audio to the Boson AI API for transcription.
+    -   **Intent Parsing**: The transcribed text is sent to an Anthropic Claude model, which interprets the natural language command and converts it into a structured JSON array of editing steps.
+    -   **Action Execution**: The controller iterates through the JSON instructions. Native actions are executed locally using the Pillow library. Generative actions are sent as API calls to a separate, dedicated GPU server.
+
+4.  **AI Models**:
+    -   **Audio-to-Text**: Boson AI for high-accuracy speech transcription.
+    -   **Natural Language Understanding**: Anthropic Claude for parsing user intent into actionable commands.
+    -   **Generative Imaging**: A separate GPU server (not included in this repository) hosts diffusion models responsible for generative tasks like in-painting, segmentation, and multi-image composition.
+
+## Setup and Installation
+
+To run HiggsArt, you will need Node.js and Python installed on your system.
+
+**1. Prerequisites**
+-   Node.js (v14 or later)
+-   Python (v3.8 or later)
+-   An account with Boson AI and Anthropic to obtain API keys.
+
+**2. Clone the Repository**
+```bash
+git clone https://github.com/your-username/HiggsArt.git
+cd HiggsArt
+```
+
+**3. Install Dependencies**
+
+-   **Node.js Server**:
+    ```bash
+    npm install
+    ```
+-   **Python Controller**:
+    ```bash
+    pip install -r requirements_python.txt
+    ```
+
+**4. Environment Variables**
+Create a `.env` file in the root directory of the project and add your API keys:
+```
+ANTHROPIC_API_KEY="your-anthropic-api-key"
+BOSON_API_KEY= your-boson-api-key"
+```
+**5. Running the Application**
+
+You need to start the three main components. It is recommended to run each command in a separate terminal window.
+
+-   **Start the Node.js Server**:
+    ```bash
+    npm start
+    ```
+    This will start the web server on `http://localhost:3000`.
+
+-   **Start the Python Terminal Controller**:
+    ```bash
+    python terminal_controller.py
+    ```
+    This will connect to the Node.js server and wait for commands.
+
+-   **(Optional) Start the GPU Server**:
+    For full functionality, you need to run the generative AI server. The controller expects this server to be running on `http://localhost:6000`. The code for this server is not included in this repository.
 
 ## Usage
 
-### Web Interface
+1.  After starting the server and controller, open your web browser and navigate to `http://localhost:3000`.
+2.  The web page will display a list of images from the `/test_images` directory. You can upload your own images by dragging and dropping them onto the sidebar.
+3.  In the terminal where you ran `terminal_controller.py`, type `voice` and press Enter to enable voice control.
+4.  Begin speaking your commands.
 
-1. **Start the server:**
-   ```bash
-   npm start
-   ```
-
-2. **Open your browser:**
-   Go to `http://localhost:3000`
-
-3. **Use the web interface:**
-   - Click any image in the left sidebar to display it
-   - Drag & drop images to upload them
-   - Hover over images and click "Delete" to remove them
-   - The selected image will auto-reload every 1 second
-   - Use keyboard shortcuts: R = manual reload, S = start/stop auto-reload
-
-### Terminal Control
-
-1. **Start the terminal controller:**
-   ```bash
-   python terminal_controller.py
-   ```
-
-2. **Use terminal commands:**
-   ```
-   > open image1.png          # Select an image in the browser
-   > open photo2.jpg          # Switch to another image
-   > help                     # Show available commands
-   > quit                     # Exit the terminal controller
-   ```
-
-3. **Real-time updates:**
-   - Commands typed in terminal instantly update the browser
-   - Error messages for invalid image names
-   - Success confirmations for valid selections
-
-## Files
-
-- `server.js` - Node.js server with filesystem access and WebSocket support
-- `index.html` - Frontend with image selection, display, and WebSocket client
-- `terminal_controller.py` - Python terminal controller for remote image selection
-- `package.json` - Node.js dependencies
-- `requirements_python.txt` - Python dependencies for terminal control
-
-## API Endpoints
-
-- `GET /api/images` - Returns list of images in the folder
-- `GET /images/:filename` - Serves individual image files
-- `POST /api/upload` - Upload new images
-- `DELETE /api/images/:filename` - Delete an image
-- `GET /api/health` - Server health check
-
-## WebSocket Communication
-
-- **Terminal Connection** - `ws://localhost:3000` for terminal control
-- **Browser Connection** - Automatic WebSocket connection for real-time updates
-- **Message Types:**
-  - `terminal_connect` - Terminal registers with server
-  - `browser_connect` - Browser registers with server
-  - `select_image` - Terminal command to select an image
-  - `image_selected` - Broadcast to browsers when image is selected
-
-## Supported Image Formats
-
-- JPG/JPEG
-- PNG
-- GIF
-- BMP
-- WebP
-- SVG
-
-## Terminal Commands
-
-- `open <filename>` - Select an image in the browser
-- `help` - Show available commands
-- `quit` / `exit` - Exit the terminal controller
-
-The server directly reads your filesystem and serves the actual images with real-time terminal control!
+**Example Commands:**
+-   "Open frog."
+-   "Rotate this image by 90 degrees."
+-   "Increase the saturation by 30 percent."
+-   "Make the frog purple."
+-   "Revert this image."
+-   "Zoom into the man's face."
+-   "Remove the background."
