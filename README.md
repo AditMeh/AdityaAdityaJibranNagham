@@ -1,5 +1,5 @@
 # HiggsArt: Voice-Controlled Image Editing
-
+Here is the demo video:
 [![HiggsArt Demo Video](https://img.youtube.com/vi/exdR0Wp0bSk/0.jpg)](https://www.youtube.com/watch?v=exdR0Wp0bSk)
 
 HiggsArt is an innovative image editing application that replaces traditional graphical user interfaces with a powerful, intuitive voice-controlled workflow. It allows users to perform a wide range of edits, from simple transformations to complex generative AI modifications, purely through spoken commands.
