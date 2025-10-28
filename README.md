@@ -98,7 +98,7 @@ You need to start the three main components. It is recommended to run each comma
     This will connect to the Node.js server and wait for commands.
 
 -   **(Optional) Start the GPU Server**:
-    For full functionality, you need to run the generative AI server. The controller expects this server to be running on `http://localhost:6000`. The code for this server is not included in this repository.
+    For full functionality, you need to run the generative AI server. The controller expects this server to be running on `http://localhost:6000`. The code for this server is included in this repository under `qwen_inference/`.
 
 ## Usage
 
